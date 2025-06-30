@@ -18,8 +18,8 @@ const Dashboard = () => {
 
   return (
     <Grid container spacing={2} sx={{ p: 2 }}>
-      <Grid item xs={12} sm={6} md={3}><StatCard title="Online" value={stats.online} /></Grid>
-      <Grid item xs={12} sm={6} md={3}><StatCard title="Offline" value={stats.offline} /></Grid>
+      <Grid item xs={12} sm={6} md={3}><StatCard title="Online" value={stats.online || 0} /></Grid>
+      <Grid item xs={12} sm={6} md={3}><StatCard title="Offline" value={stats.offline || 0} /></Grid>
       <Grid item xs={12} sm={6} md={3}><StatCard title="Power Fail" value={stats.powerFail} /></Grid>
       <Grid item xs={12} sm={6} md={3}><StatCard title="Total" value={stats.total} /></Grid>
     </Grid>

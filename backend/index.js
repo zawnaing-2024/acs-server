@@ -25,14 +25,27 @@ app.get('/api/summary', async (req, res) => {
   try {
     const statusResp = await nbi.get('/devices', {
       params: {
-        projection: "_id,summary" // summary includes online flag
+        projection: "_id,summary,lastInform"
       }
     });
     const devices = statusResp.data || [];
 
     let online = 0, offline = 0, powerFail = 0;
+    const now = Date.now();
+    const ONLINE_WINDOW = 15 * 60 * 1000; // 15 minutes
+
     devices.forEach((d) => {
-      if (d.summary?.online) online++; else offline++;
+      let isOnline = false;
+      if (typeof d.summary?.online === 'boolean') {
+        isOnline = d.summary.online;
+      } else if (d.lastInform) {
+        // lastInform is ISO string
+        const li = new Date(d.lastInform).getTime();
+        if (now - li < ONLINE_WINDOW) isOnline = true;
+      }
+
+      if (isOnline) online++; else offline++;
+
       if (d.summary?.alarm?.power) powerFail++;
     });
 
@@ -51,11 +64,23 @@ app.get('/api/devices', async (req, res) => {
     const resp = await nbi.get('/devices', {
       params: {
         query,
-        projection: "_id,summary.parameters.WANDevice,summary.online",
+        projection: "_id,summary,lastInform",
         limit: 100
       }
     });
-    res.json(resp.data);
+    const now = Date.now();
+    const ONLINE_WINDOW = 15 * 60 * 1000;
+    const devices = (resp.data || []).map((d) => {
+      let isOnline = false;
+      if (typeof d.summary?.online === 'boolean') {
+        isOnline = d.summary.online;
+      } else if (d.lastInform) {
+        const li = new Date(d.lastInform).getTime();
+        if (now - li < ONLINE_WINDOW) isOnline = true;
+      }
+      return { _id: d._id, online: isOnline };
+    });
+    res.json(devices);
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ error: 'Failed to fetch devices' });

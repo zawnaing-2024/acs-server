@@ -44,7 +44,7 @@ const Devices = () => {
             {devices.map((d) => (
               <TableRow hover key={d._id} onClick={() => navigate(`/devices/${d._id}`)} style={{ cursor: 'pointer' }}>
                 <TableCell>{d._id}</TableCell>
-                <TableCell>{d.summary?.online ? 'Online' : 'Offline'}</TableCell>
+                <TableCell>{d.online ? 'Online' : 'Offline'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
