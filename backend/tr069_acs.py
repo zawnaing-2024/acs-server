@@ -96,24 +96,70 @@ class TR069ACS:
         return response is not None
     
     def _handle_inform(self, body):
-        """Handle Inform message from device"""
-        # This is a simplified version - full implementation would be much longer
-        logger.info("Handling Inform request")
-        
-        # Create InformResponse
-        soap_xml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="{SOAP_ENV}" xmlns:cwmp="{CWMP_NS}">
-    <soap:Header>
-        <cwmp:ID soap:mustUnderstand="1">{uuid.uuid4()}</cwmp:ID>
-    </soap:Header>
-    <soap:Body>
-        <cwmp:InformResponse>
-            <MaxEnvelopes>1</MaxEnvelopes>
-        </cwmp:InformResponse>
-    </soap:Body>
-</soap:Envelope>'''
-        
-        return Response(soap_xml, mimetype='text/xml')
+        """Handle Inform message and register/update device (namespace-agnostic)."""
+        logger.info("Handling Inform request – universal parser v2")
+
+        def find_text(element, tag_suffix):
+            """Return first .text of any descendant whose tag ends with tag_suffix"""
+            for elem in element.iter():
+                if elem.tag.endswith(tag_suffix):
+                    return (elem.text or '').strip()
+            return ''
+
+        try:
+            serial_number = find_text(body, 'SerialNumber')
+            manufacturer  = find_text(body, 'Manufacturer') or 'Unknown'
+            product_class = find_text(body, 'ProductClass') or 'Unknown'
+
+            if not serial_number:
+                # Fallback to Device.DeviceInfo.SerialNumber in ParameterList
+                serial_number = find_text(body, 'DeviceInfo.SerialNumber')
+            if not serial_number:
+                serial_number = f"UNKNOWN_{uuid.uuid4().hex[:8]}"
+
+            # Pull some optional useful params
+            software_version = find_text(body, 'SoftwareVersion')
+            hardware_version = find_text(body, 'HardwareVersion')
+            ip_address       = find_text(body, 'ExternalIPAddress')
+
+            now = datetime.utcnow()
+            device = Device.query.filter_by(serial_number=serial_number).first()
+            action = 'update'
+            if not device:
+                device = Device(serial_number=serial_number,
+                                manufacturer=manufacturer,
+                                model=product_class,
+                                device_type='CPE',
+                                registered_at=now)
+                db.session.add(device)
+                action = 'create'
+
+            device.status            = 'online'
+            device.last_inform       = now
+            device.software_version  = software_version or device.software_version
+            device.hardware_version  = hardware_version or device.hardware_version
+            device.ip_address        = ip_address or device.ip_address
+            db.session.commit()
+            logger.info(f"Device {serial_number} {action}d / refreshed successfully")
+
+            # Push websocket event if socketio present
+            try:
+                sio = self.app.extensions.get('socketio')
+                if sio:
+                    sio.emit('device_update', device.to_dict(), namespace='/')
+            except Exception as ws_err:
+                logger.debug(f"WebSocket emit skipped: {ws_err}")
+
+        except Exception as exc:
+            logger.error("Failed to process Inform: %s", exc, exc_info=True)
+
+        # Always respond with InformResponse
+        soap_resp = f"""<?xml version='1.0' encoding='UTF-8'?>
+<soap:Envelope xmlns:soap='{SOAP_ENV}' xmlns:cwmp='{CWMP_NS}'>
+ <soap:Header><cwmp:ID soap:mustUnderstand='1'>{uuid.uuid4()}</cwmp:ID></soap:Header>
+ <soap:Body><cwmp:InformResponse><MaxEnvelopes>1</MaxEnvelopes></cwmp:InformResponse></soap:Body>
+</soap:Envelope>"""
+        return Response(soap_resp, mimetype='text/xml')
     
     def _register_device(self, serial_number, manufacturer, product_class, oui, parameters, current_time, events):
         """Register or update device in database"""
