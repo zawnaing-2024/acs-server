@@ -3,6 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import axios from 'axios';
+import jwt from 'jsonwebtoken';
+import { findUser, verifyPassword } from './users.js';
 
 dotenv.config();
 
@@ -13,12 +15,40 @@ app.use(helmet());
 
 const PORT = process.env.PORT || 4000;
 const GENIEACS_NBI_URL = process.env.GENIEACS_NBI_URL || 'http://localhost:7557';
+const JWT_SECRET = process.env.JWT_SECRET || 'secret-demo';
 
 // Helper to call GenieACS NBI
 const nbi = axios.create({
   baseURL: GENIEACS_NBI_URL,
   timeout: 10000,
 });
+
+function authMiddleware(req, res, next) {
+  const auth = req.headers['authorization'];
+  if (!auth) return res.status(401).json({ error: 'No token' });
+  const [, token] = auth.split(' ');
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Login route
+app.post('/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = await findUser(username);
+  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  const ok = await verifyPassword(user, password);
+  if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+  const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '8h' });
+  res.json({ token });
+});
+
+// Protect API routes below
+app.use('/api', authMiddleware);
 
 // Dashboard summary
 app.get('/api/summary', async (req, res) => {
