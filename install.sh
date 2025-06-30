@@ -10,7 +10,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 apt update
-apt install -y curl gnupg build-essential redis-server mongodb-org-shell mongodb-org-tools git
+apt install -y curl gnupg build-essential redis-server git
 
 # Install Node.js 18 LTS via NodeSource
 curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
@@ -19,12 +19,25 @@ apt install -y nodejs
 # Install Redis (already installed)
 systemctl enable redis-server --now
 
-# Install MongoDB 4.4
-wget -qO - https://www.mongodb.org/static/pgp/server-4.4.asc | apt-key add -
+# Install MongoDB 6.0 on Ubuntu 22.04 (jammy) or 5.0 on 20.04 (focal)
 CODENAME=$(lsb_release -sc)
-echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu $CODENAME/mongodb-org/4.4 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-4.4.list
-apt update && apt install -y mongodb-org
-systemctl enable mongod --now
+if [[ "$CODENAME" == "jammy" ]]; then
+  VER="6.0"
+else
+  VER="5.0"
+fi
+
+sudo mkdir -p /etc/apt/keyrings
+wget -qO- https://pgp.mongodb.com/server-${VER}.asc | \
+  sudo tee /etc/apt/keyrings/mongodb-server-${VER}.gpg > /dev/null
+
+echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-${VER}.gpg ] \
+https://repo.mongodb.org/apt/ubuntu $CODENAME/mongodb-org/${VER} multiverse" | \
+  sudo tee /etc/apt/sources.list.d/mongodb-org-${VER}.list
+
+apt update
+apt install -y mongodb-org
+systemctl enable --now mongod
 
 # Install GenieACS globally
 npm install -g genieacs
