@@ -59,7 +59,10 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Protect API routes below
-app.use('/api', authMiddleware);
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth')) return next();
+  return authMiddleware(req, res, next);
+});
 
 // Dashboard summary
 app.get('/api/summary', async (req, res) => {
