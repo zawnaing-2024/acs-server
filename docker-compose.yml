@@ -1,92 +1,77 @@
-version: '3.8'
+version: "3.9"
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_DB: tr069_portal
-      POSTGRES_USER: tr069_user
-      POSTGRES_PASSWORD: tr069_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+  mongo:
+    image: mongo:4.4
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tr069_user -d tr069_portal"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    volumes:
+      - mongo_data:/data/db
 
-  # Redis for caching and session storage
   redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    image: redis:6
     restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis_data:/data
 
-  # Backend Flask Application
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+  genieacs-cwmp:
+    image: genieacs/genieacs:latest
+    command: genieacs-cwmp
     environment:
-      - FLASK_ENV=production
-      - DATABASE_URL=postgresql://tr069_user:tr069_password@postgres:5432/tr069_portal
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your-secret-key-here
-      - JWT_SECRET_KEY=your-jwt-secret-key-here
-      - ACS_URL=http://backend:5000/acs
-    ports:
-      - "5000:5000"
+      - GENIEACS_CWMP_INTERFACE=0.0.0.0
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
+      - mongo
+      - redis
     restart: unless-stopped
-    volumes:
-      - ./backend:/app
-      - uploads:/app/uploads
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    ports:
+      - "7547:7547"   # TR-069 endpoint
 
-  # Frontend React Application
+  genieacs-nbi:
+    image: genieacs/genieacs:latest
+    command: genieacs-nbi
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+    ports:
+      - "7557:7557"   # Northbound API
+
+  genieacs-fs:
+    image: genieacs/genieacs:latest
+    command: genieacs-fs
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+
+  genieacs-ui:
+    image: genieacs/genieacs:latest
+    command: genieacs-ui
+    environment:
+      - GENIEACS_UI_JWT_SECRET=super-secret-change-me
+    depends_on:
+      - mongo
+      - redis
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Original GenieACS UI (optional)
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - GENIEACS_NBI_URL=http://genieacs-nbi:7557
+    depends_on:
+      - genieacs-nbi
+    ports:
+      - "4000:4000"   # Custom REST API
+
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
+    build: ./frontend
     restart: unless-stopped
-    environment:
-      - REACT_APP_API_URL=http://localhost:5000
-
-  # Nginx Reverse Proxy
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/sites:/etc/nginx/conf.d
-      - ./ssl:/etc/nginx/ssl
     depends_on:
-      - backend
-      - frontend
-    restart: unless-stopped
+      - api
+    ports:
+      - "80:80"       # Public web portal
 
 volumes:
-  postgres_data:
-  redis_data:
-  uploads: 
+  mongo_data: 
