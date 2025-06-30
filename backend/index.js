@@ -47,6 +47,17 @@ app.post('/auth/login', async (req, res) => {
   res.json({ token });
 });
 
+// Also allow /api/auth/login for frontend baseURL '/api'
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = await findUser(username);
+  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  const ok = await verifyPassword(user, password);
+  if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+  const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '8h' });
+  res.json({ token });
+});
+
 // Protect API routes below
 app.use('/api', authMiddleware);
 
