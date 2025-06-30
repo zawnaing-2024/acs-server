@@ -19,25 +19,33 @@ apt install -y nodejs
 # Install Redis (already installed)
 systemctl enable redis-server --now
 
-# Install MongoDB 6.0 on Ubuntu 22.04 (jammy) or 5.0 on 20.04 (focal)
+# --- MongoDB (auto-select 6.0 for jammy, 5.0 for focal) ---
 CODENAME=$(lsb_release -sc)
-if [[ "$CODENAME" == "jammy" ]]; then
-  VER="6.0"
-else
-  VER="5.0"
-fi
+if [[ "$CODENAME" == "jammy" ]]; then VER="6.0"; else VER="5.0"; fi
 
+################ 1) clean out every old MongoDB entry ################
+sudo rm -f /etc/apt/sources.list.d/mongodb-org-4.4.list
+sudo rm -f /etc/apt/sources.list.d/mongodb-org-5.0.list
+sudo rm -f /etc/apt/sources.list.d/mongodb-org-6.0.list
+sudo rm -f /etc/apt/keyrings/mongodb-server-6.0.gpg
+
+################ 2) be sure we have curl + gnupg ################
+sudo apt update
+sudo apt install -y curl gnupg
+
+################ 3) fetch & de-armor the GPG key ################
 sudo mkdir -p /etc/apt/keyrings
-wget -qO- https://pgp.mongodb.com/server-${VER}.asc | \
-  sudo tee /etc/apt/keyrings/mongodb-server-${VER}.gpg > /dev/null
+curl -fsSL https://pgp.mongodb.com/server-6.0.asc \
+ | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
 
-echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-${VER}.gpg ] \
-https://repo.mongodb.org/apt/ubuntu $CODENAME/mongodb-org/${VER} multiverse" | \
-  sudo tee /etc/apt/sources.list.d/mongodb-org-${VER}.list
+################ 4) add the 6.0 repository (ONE single line!) ########
+echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" \
+ | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
 
-apt update
-apt install -y mongodb-org
-systemctl enable --now mongod
+################ 5) update indexes & install #########################
+sudo apt update
+sudo apt install -y mongodb-org
+sudo systemctl enable --now mongod
 
 # Install GenieACS globally
 npm install -g genieacs
@@ -129,7 +137,53 @@ EOF
 
 systemctl enable acs-api --now
 
-echo "\nAll done!"
-echo "CWMP:   http://$(hostname -I | awk '{print $1}'):7547"
-echo "GenieACS UI: http://$(hostname -I | awk '{print $1}'):3000"
-echo "Custom API:  http://$(hostname -I | awk '{print $1}'):4000" 
+# Ensure env file exists
+cd /opt/acs-server
+if [[ ! -f .env ]]; then
+  cp env.template .env
+fi
+
+# Build frontend & serve with nginx
+apt install -y nginx
+cd /opt/acs-server/frontend
+npm install --production
+npm run build
+
+# Copy build to web root
+rm -rf /var/www/acs || true
+mkdir -p /var/www/acs
+cp -r dist/* /var/www/acs/
+
+# Configure nginx site
+cat >/etc/nginx/sites-available/acs.conf <<'NCONF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    root /var/www/acs;
+    index index.html;
+
+    location /api/ {
+        proxy_pass http://localhost:4000/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
+NCONF
+
+ln -sf /etc/nginx/sites-available/acs.conf /etc/nginx/sites-enabled/acs.conf
+rm -f /etc/nginx/sites-enabled/default
+systemctl restart nginx
+
+# Final output
+IP=$(hostname -I | awk '{print $1}')
+echo -e "\nAll done!"
+echo "CWMP:   http://$IP:7547"
+echo "GenieACS UI: http://$IP:3000"
+echo "Dashboard:    http://$IP/"
+echo "Custom API:  http://$IP:4000" 
