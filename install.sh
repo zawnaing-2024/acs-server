@@ -176,9 +176,24 @@ server {
 }
 NCONF
 
-ln -sf /etc/nginx/sites-available/acs.conf /etc/nginx/sites-enabled/acs.conf
-rm -f /etc/nginx/sites-enabled/default
-systemctl restart nginx
+# 1) remove the default link
+sudo rm -f /etc/nginx/sites-enabled/default
+
+# 2) create (or recreate) our ACS site file
+sudo ln -sf /etc/nginx/sites-available/acs.conf /etc/nginx/sites-enabled/acs.conf
+
+# 3) be sure the dashboard files exist
+sudo mkdir -p /var/www/acs
+if [ ! -f /var/www/acs/index.html ]; then
+    cd /opt/acs-server/frontend
+    npm install --production
+    npm run build
+    sudo cp -r dist/* /var/www/acs/
+fi
+
+# 4) restart nginx
+sudo nginx -t           # should say "syntax is ok"
+sudo systemctl restart nginx
 
 # Final output
 IP=$(hostname -I | awk '{print $1}')
