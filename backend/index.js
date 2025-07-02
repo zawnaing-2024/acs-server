@@ -1,19 +1,22 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
-import axios from 'axios';
-import rateLimit from 'express-rate-limit';
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json());
-app.use(cors());
-app.use(helmet());
-
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// Middleware
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+
+// GenieACS Configuration
 const GENIEACS_URL = process.env.GENIEACS_URL || 'http://localhost:7557';
 const GENIEACS_USERNAME = process.env.GENIEACS_USERNAME || 'admin';
 const GENIEACS_PASSWORD = process.env.GENIEACS_PASSWORD || 'admin';
@@ -25,18 +28,18 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// Users database (in production, use MongoDB)
+// Default users (in production, use database)
 const users = [
   {
     id: 1,
     username: 'admin',
-    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password = "password"
+    password: 'admin',
     role: 'admin'
   },
   {
     id: 2,
     username: 'operator',
-    password: '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password = "password"
+    password: 'operator',
     role: 'operator'
   }
 ];
@@ -94,7 +97,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Login with simple password check for now
+// Login with simple password check
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -103,13 +106,8 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ error: 'Username and password required' });
     }
 
-    // Simple check - in production use proper hashing
-    let user = null;
-    if (username === 'admin' && password === 'admin') {
-      user = { id: 1, username: 'admin', role: 'admin' };
-    } else if (username === 'operator' && password === 'operator') {
-      user = { id: 2, username: 'operator', role: 'operator' };
-    }
+    // Find user
+    const user = users.find(u => u.username === username && u.password === password);
 
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });

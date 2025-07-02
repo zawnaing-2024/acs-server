@@ -117,10 +117,6 @@ const Login = () => {
               {loading ? 'Signing In...' : 'Sign In'}
             </Button>
           </Box>
-          
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Default credentials: admin / admin
-          </Typography>
         </Paper>
       </Box>
     </Container>
