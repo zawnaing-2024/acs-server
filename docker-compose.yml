@@ -57,7 +57,7 @@ services:
 
   # GenieACS CWMP Server
   genieacs-cwmp:
-    image: drumsergio/genieacs:latest
+    image: genieacs/genieacs:1.2.8
     container_name: acs-genieacs-cwmp
     restart: unless-stopped
     environment:
@@ -70,11 +70,11 @@ services:
       - mongodb
     networks:
       - acs-network
-    command: ["node", "/opt/genieacs/bin/genieacs-cwmp"]
+    command: ["genieacs-cwmp"]
 
   # GenieACS NBI (Northbound Interface)
   genieacs-nbi:
-    image: drumsergio/genieacs:latest
+    image: genieacs/genieacs:1.2.8
     container_name: acs-genieacs-nbi
     restart: unless-stopped
     environment:
@@ -87,11 +87,11 @@ services:
       - mongodb
     networks:
       - acs-network
-    command: ["node", "/opt/genieacs/bin/genieacs-nbi"]
+    command: ["genieacs-nbi"]
 
   # GenieACS File Server
   genieacs-fs:
-    image: drumsergio/genieacs:latest
+    image: genieacs/genieacs:1.2.8
     container_name: acs-genieacs-fs
     restart: unless-stopped
     environment:
@@ -104,11 +104,11 @@ services:
       - mongodb
     networks:
       - acs-network
-    command: ["node", "/opt/genieacs/bin/genieacs-fs"]
+    command: ["genieacs-fs"]
 
   # GenieACS UI
   genieacs-ui:
-    image: drumsergio/genieacs:latest
+    image: genieacs/genieacs:1.2.8
     container_name: acs-genieacs-ui
     restart: unless-stopped
     environment:
@@ -121,7 +121,7 @@ services:
       - mongodb
     networks:
       - acs-network
-    command: ["node", "/opt/genieacs/bin/genieacs-ui"]
+    command: ["genieacs-ui"]
 
 volumes:
   mongodb_data:
