@@ -38,7 +38,7 @@ const Login = () => {
     if (result.success) {
       navigate('/dashboard')
     } else {
-      setError(result.error)
+      setError(result.error || 'Login failed. Please check your credentials.')
     }
     
     setLoading(false)

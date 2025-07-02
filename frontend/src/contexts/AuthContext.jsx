@@ -16,6 +16,9 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)
 
+  // Set axios base URL
+  axios.defaults.baseURL = ''
+
   useEffect(() => {
     if (token) {
       // Set default authorization header
@@ -50,10 +53,14 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
+      console.log('Attempting login with:', username)
+      
       const response = await axios.post('/api/auth/login', {
         username,
         password
       })
+
+      console.log('Login response:', response.data)
 
       const { token: newToken, user: userData } = response.data
       
@@ -65,9 +72,19 @@ export const AuthProvider = ({ children }) => {
       return { success: true }
     } catch (error) {
       console.error('Login error:', error)
+      
+      let errorMessage = 'Login failed'
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Invalid username or password'
+      } else if (error.code === 'NETWORK_ERROR' || !error.response) {
+        errorMessage = 'Cannot connect to server. Please check if the backend is running.'
+      }
+      
       return {
         success: false,
-        error: error.response?.data?.error || 'Login failed'
+        error: errorMessage
       }
     }
   }
