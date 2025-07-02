@@ -4,31 +4,66 @@ import helmet from 'helmet';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import axios from 'axios';
+import rateLimit from 'express-rate-limit';
+require('dotenv').config();
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 app.use(helmet());
 
-const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'one-solution-jwt-secret';
-const GENIEACS_NBI_URL = process.env.GENIEACS_NBI_URL || 'http://localhost:7557';
+const PORT = process.env.PORT || 3001;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const GENIEACS_URL = process.env.GENIEACS_URL || 'http://localhost:3000';
+const GENIEACS_USERNAME = process.env.GENIEACS_USERNAME || 'admin';
+const GENIEACS_PASSWORD = process.env.GENIEACS_PASSWORD || 'admin';
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100 // limit each IP to 100 requests per windowMs
+});
+app.use(limiter);
 
 // Users database (in production, use MongoDB)
 const users = [
   {
     id: 1,
     username: 'admin',
-    password: 'One@2025', // plain text for now
+    password: '$2a$10$rQZ8N3YqX9vB2cD1eF4gH5iJ6kL7mN8oP9qR0sT1uV2wX3yZ4aB5cD6eF7gH',
     role: 'admin'
+  },
+  {
+    id: 2,
+    username: 'operator',
+    password: '$2a$10$rQZ8N3YqX9vB2cD1eF4gH5iJ6kL7mN8oP9qR0sT1uV2wX3yZ4aB5cD6eF7gH',
+    role: 'operator'
   }
 ];
 
-// GenieACS NBI client
-const nbi = axios.create({
-  baseURL: GENIEACS_NBI_URL,
-  timeout: 10000
-});
+// GenieACS API helper
+const genieacsRequest = async (endpoint, method = 'GET', data = null) => {
+  try {
+    const config = {
+      method,
+      url: `${GENIEACS_URL}${endpoint}`,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${Buffer.from(`${GENIEACS_USERNAME}:${GENIEACS_PASSWORD}`).toString('base64')}`
+      }
+    };
+
+    if (data) {
+      config.data = data;
+    }
+
+    const response = await axios(config);
+    return response.data;
+  } catch (error) {
+    console.error('GenieACS API Error:', error.message);
+    throw error;
+  }
+};
 
 // Auth middleware
 const authMiddleware = (req, res, next) => {
@@ -45,144 +80,220 @@ const authMiddleware = (req, res, next) => {
 };
 
 // Login endpoint
-app.post('/auth/login', async (req, res) => {
-  const { username, password } = req.body;
-  const user = users.find(u => u.username === username);
-  
-  if (!user || password !== user.password) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password required' });
+    }
+
+    const user = users.find(u => u.username === username);
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-  
-  const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-  res.json({ token, user: { username: user.username, role: user.role } });
 });
 
 // Dashboard summary
-app.get('/api/summary', authMiddleware, async (req, res) => {
+app.get('/api/dashboard/stats', authMiddleware, async (req, res) => {
   try {
-    const response = await nbi.get('/devices', {
-      params: { projection: '_id,summary,lastInform' }
-    });
+    // Get devices from GenieACS
+    const devices = await genieacsRequest('/devices');
     
-    const devices = response.data || [];
-    const now = Date.now();
-    const onlineWindow = 15 * 60 * 1000; // 15 minutes
-    
-    let online = 0, offline = 0, total = devices.length;
-    
-    devices.forEach(device => {
-      const lastInform = device.lastInform ? new Date(device.lastInform).getTime() : 0;
-      if (now - lastInform < onlineWindow) online++;
-      else offline++;
-    });
-    
-    res.json({ online, offline, total });
+    const stats = {
+      total: devices.length,
+      online: devices.filter(d => d.Online).length,
+      offline: devices.filter(d => !d.Online).length,
+      powerFail: devices.filter(d => d.PowerStatus === 'failed').length,
+      byType: {
+        cpe: devices.filter(d => d.DeviceType === 'CPE').length,
+        onu: devices.filter(d => d.DeviceType === 'ONU').length,
+        mikrotik: devices.filter(d => d.DeviceType === 'Mikrotik').length
+      }
+    };
+
+    res.json(stats);
   } catch (error) {
-    console.error('Error fetching summary:', error.message);
-    res.status(500).json({ error: 'Failed to fetch summary' });
+    console.error('Dashboard stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard stats' });
   }
 });
 
 // Device list
 app.get('/api/devices', authMiddleware, async (req, res) => {
   try {
-    const { search = '' } = req.query;
-    const query = search ? `"_id":"/.*${search}.*/"` : '';
+    const { search, type, status, page = 1, limit = 20 } = req.query;
     
-    const response = await nbi.get('/devices', {
-      params: {
-        query,
-        projection: '_id,summary,lastInform',
-        limit: 100
+    let devices = await genieacsRequest('/devices');
+    
+    // Apply filters
+    if (search) {
+      devices = devices.filter(d => 
+        d.SerialNumber?.toLowerCase().includes(search.toLowerCase()) ||
+        d.OUI?.toLowerCase().includes(search.toLowerCase()) ||
+        d.ProductClass?.toLowerCase().includes(search.toLowerCase())
+      );
+    }
+    
+    if (type) {
+      devices = devices.filter(d => d.DeviceType === type);
+    }
+    
+    if (status) {
+      if (status === 'online') {
+        devices = devices.filter(d => d.Online);
+      } else if (status === 'offline') {
+        devices = devices.filter(d => !d.Online);
+      }
+    }
+    
+    // Pagination
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + parseInt(limit);
+    const paginatedDevices = devices.slice(startIndex, endIndex);
+    
+    res.json({
+      devices: paginatedDevices,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: devices.length,
+        pages: Math.ceil(devices.length / limit)
       }
     });
-    
-    const devices = (response.data || []).map(device => {
-      const lastInform = device.lastInform ? new Date(device.lastInform).getTime() : 0;
-      const now = Date.now();
-      const online = (now - lastInform) < (15 * 60 * 1000);
-      
-      return {
-        id: device._id,
-        name: device._id,
-        online,
-        lastSeen: device.lastInform,
-        summary: device.summary || {}
-      };
-    });
-    
-    res.json(devices);
   } catch (error) {
-    console.error('Error fetching devices:', error.message);
+    console.error('Devices list error:', error);
     res.status(500).json({ error: 'Failed to fetch devices' });
   }
 });
 
 // Device details
-app.get('/api/devices/:id', authMiddleware, async (req, res) => {
+app.get('/api/devices/:deviceId', authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params;
-    const response = await nbi.get(`/devices/${id}`, {
-      params: { projection: '_id,summary,lastInform' }
-    });
+    const { deviceId } = req.params;
     
-    const device = response.data;
+    const device = await genieacsRequest(`/devices/${deviceId}`);
+    
     if (!device) {
       return res.status(404).json({ error: 'Device not found' });
     }
     
-    const lastInform = device.lastInform ? new Date(device.lastInform).getTime() : 0;
-    const now = Date.now();
-    const online = (now - lastInform) < (15 * 60 * 1000);
-    
-    res.json({
-      id: device._id,
-      name: device._id,
-      online,
-      lastSeen: device.lastInform,
-      summary: device.summary || {},
-      parameters: device.summary?.parameters || {}
-    });
+    res.json(device);
   } catch (error) {
-    console.error('Error fetching device:', error.message);
-    res.status(500).json({ error: 'Failed to fetch device' });
+    console.error('Device details error:', error);
+    res.status(500).json({ error: 'Failed to fetch device details' });
   }
 });
 
 // Update device settings
-app.put('/api/devices/:id/settings', authMiddleware, async (req, res) => {
+app.put('/api/devices/:deviceId/settings', authMiddleware, async (req, res) => {
   try {
-    const { id } = req.params;
-    const { wifiSSID, wifiPassword, customerID, customerPassword } = req.body;
+    const { deviceId } = req.params;
+    const { wifiUsername, wifiPassword, customerId, customerPassword, fiberPower } = req.body;
     
-    // Create GenieACS task to update device parameters
+    // Create task to update device settings
     const task = {
-      name: 'setParameterValues',
-      device: id,
-      input: {}
+      device: deviceId,
+      name: 'SetParameterValues',
+      parameterNames: [],
+      parameterValues: []
     };
     
-    if (wifiSSID) {
-      task.input['InternetGatewayDevice.WLANConfiguration.1.SSID'] = wifiSSID;
+    if (wifiUsername) {
+      task.parameterNames.push('Device.WiFi.AccessPoint.1.SSID');
+      task.parameterValues.push(wifiUsername);
     }
+    
     if (wifiPassword) {
-      task.input['InternetGatewayDevice.WLANConfiguration.1.PreSharedKey.1.PreSharedKey'] = wifiPassword;
+      task.parameterNames.push('Device.WiFi.AccessPoint.1.Security.KeyPassphrase');
+      task.parameterValues.push(wifiPassword);
     }
     
-    await nbi.post('/tasks', task);
+    if (customerId) {
+      task.parameterNames.push('Device.Customer.ID');
+      task.parameterValues.push(customerId);
+    }
     
-    res.json({ message: 'Settings update scheduled' });
+    if (customerPassword) {
+      task.parameterNames.push('Device.Customer.Password');
+      task.parameterValues.push(customerPassword);
+    }
+    
+    if (fiberPower !== undefined) {
+      task.parameterNames.push('Device.Optical.Power');
+      task.parameterValues.push(fiberPower.toString());
+    }
+    
+    if (task.parameterNames.length === 0) {
+      return res.status(400).json({ error: 'No parameters to update' });
+    }
+    
+    await genieacsRequest('/tasks', 'POST', task);
+    
+    res.json({ message: 'Settings update task created successfully' });
   } catch (error) {
-    console.error('Error updating device settings:', error.message);
-    res.status(500).json({ error: 'Failed to update settings' });
+    console.error('Update settings error:', error);
+    res.status(500).json({ error: 'Failed to update device settings' });
+  }
+});
+
+// Get device traffic data
+app.get('/api/devices/:deviceId/traffic', authMiddleware, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+    const { period = '24h' } = req.query;
+    
+    // Get device traffic data from GenieACS
+    const trafficData = await genieacsRequest(`/devices/${deviceId}/traffic?period=${period}`);
+    
+    res.json(trafficData);
+  } catch (error) {
+    console.error('Traffic data error:', error);
+    res.status(500).json({ error: 'Failed to fetch traffic data' });
+  }
+});
+
+// Get tasks
+app.get('/api/tasks', authMiddleware, async (req, res) => {
+  try {
+    const tasks = await genieacsRequest('/tasks');
+    res.json(tasks);
+  } catch (error) {
+    console.error('Tasks error:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
   }
 });
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', message: 'ACS Backend is running' });
 });
 
 app.listen(PORT, () => {
-  console.log(`ONE SOLUTION ACS API running on port ${PORT}`);
+  console.log(`ACS Backend running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/api/health`);
 }); 
