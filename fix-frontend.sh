@@ -21,4 +21,6 @@ echo "Restarting nginx..."
 systemctl restart nginx
 
 echo "✅ Frontend is now working!"
-echo "Access your portal at: http://$(hostname -I | awk '{print $1}')/" 
+echo "Access your portal at: http://$(hostname -I | awk '{print $1}')/"
+
+sudo systemctl restart acs-api 
