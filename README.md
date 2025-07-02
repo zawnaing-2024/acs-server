@@ -15,12 +15,28 @@ A modern TR-069/TR-369 Auto-Configuration-Server (ACS) management platform for C
 
 ## Quick Install (Ubuntu 20.04/22.04)
 
+### Option 1: Docker Installation (Recommended)
 ```bash
 # Clone the repository
 git clone https://github.com/zawnaing-2024/acs-server.git
 cd acs-server
 
-# Run the installer (as root)
+# Run the Docker installer (as root)
+sudo chmod +x install-docker.sh
+sudo ./install-docker.sh
+```
+
+### Option 2: System Installation
+```bash
+# Clone the repository
+git clone https://github.com/zawnaing-2024/acs-server.git
+cd acs-server
+
+# If you encounter nginx issues, run the fix first:
+sudo chmod +x fix-nginx-complete.sh
+sudo ./fix-nginx-complete.sh
+
+# Then run the main installer (as root)
 sudo chmod +x install.sh
 sudo ./install.sh
 ```
