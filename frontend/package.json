@@ -1,7 +1,7 @@
 {
-  "name": "acs-frontend",
-  "private": true,
+  "name": "one-solution-acs-frontend",
   "version": "1.0.0",
+  "description": "ONE SOLUTION ACS Management Portal Frontend",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,18 +9,23 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mui/icons-material": "^5.15.0",
-    "@mui/material": "^5.15.0",
-    "@emotion/react": "^11.11.1",
-    "@emotion/styled": "^11.11.0",
-    "@emotion/cache": "^11.11.0",
-    "axios": "^1.6.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.17.0"
+    "react-router-dom": "^6.8.1",
+    "@mui/material": "^5.14.20",
+    "@mui/icons-material": "^5.14.19",
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "axios": "^1.6.2",
+    "recharts": "^2.8.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.0.0",
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "@vitejs/plugin-react": "^4.1.1",
     "vite": "^4.5.0"
-  }
+  },
+  "keywords": ["acs", "tr-069", "react", "mui"],
+  "author": "ONE SOLUTION",
+  "license": "MIT"
 } 

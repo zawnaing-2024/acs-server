@@ -1,57 +1,57 @@
-#!/usr/bin/env bash
-# Bare-metal install script for GenieACS stack on Ubuntu 20.04/22.04
-# Run as root (or with sudo)
+#!/bin/bash
 
-set -euo pipefail
+# ONE SOLUTION - ACS Portal Installer
+# Ubuntu 20.04/22.04 Installation Script
 
+set -e
+
+echo "=========================================="
+echo "  ONE SOLUTION - ACS Portal Installer"
+echo "=========================================="
+
+# Check if running as root
 if [[ $EUID -ne 0 ]]; then
-  echo "Please run as root: sudo ./install.sh" >&2
-  exit 1
+   echo "This script must be run as root (use sudo)"
+   exit 1
 fi
 
+# Update system
+echo "Updating system packages..."
 apt update
-apt install -y curl gnupg build-essential redis-server git
+apt install -y curl wget git build-essential
 
-# Install Node.js 18 LTS via NodeSource
+# Install Node.js 18
+echo "Installing Node.js 18..."
 curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
 apt install -y nodejs
 
-# Install Redis (already installed)
-systemctl enable redis-server --now
+# Install MongoDB 6.0
+echo "Installing MongoDB 6.0..."
+wget -qO- https://www.mongodb.org/static/pgp/server-6.0.asc | apt-key add -
+echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu $(lsb_release -cs)/mongodb-org/6.0 multiverse" | tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+apt update
+apt install -y mongodb-org
+systemctl enable mongod
+systemctl start mongod
 
-# --- MongoDB (auto-select 6.0 for jammy, 5.0 for focal) ---
-CODENAME=$(lsb_release -sc)
-if [[ "$CODENAME" == "jammy" ]]; then VER="6.0"; else VER="5.0"; fi
+# Install Redis
+echo "Installing Redis..."
+apt install -y redis-server
+systemctl enable redis-server
+systemctl start redis-server
 
-################ 1) clean out every old MongoDB entry ################
-sudo rm -f /etc/apt/sources.list.d/mongodb-org-4.4.list
-sudo rm -f /etc/apt/sources.list.d/mongodb-org-5.0.list
-sudo rm -f /etc/apt/sources.list.d/mongodb-org-6.0.list
-sudo rm -f /etc/apt/keyrings/mongodb-server-6.0.gpg
+# Install Nginx
+echo "Installing Nginx..."
+apt install -y nginx
 
-################ 2) be sure we have curl + gnupg ################
-sudo apt update
-sudo apt install -y curl gnupg
-
-################ 3) fetch & de-armor the GPG key ################
-sudo mkdir -p /etc/apt/keyrings
-curl -fsSL https://pgp.mongodb.com/server-6.0.asc \
- | sudo gpg --dearmor -o /etc/apt/keyrings/mongodb-server-6.0.gpg
-
-################ 4) add the 6.0 repository (ONE single line!) ########
-echo "deb [ arch=amd64,arm64 signed-by=/etc/apt/keyrings/mongodb-server-6.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" \
- | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
-
-################ 5) update indexes & install #########################
-sudo apt update
-sudo apt install -y mongodb-org
-sudo systemctl enable --now mongod
-
-# Install GenieACS globally
+# Install GenieACS
+echo "Installing GenieACS..."
 npm install -g genieacs
 
-# Create systemd services for GenieACS components
-cat >/etc/systemd/system/genieacs-cwmp.service <<'EOF'
+# Create GenieACS services
+echo "Creating GenieACS services..."
+
+cat > /etc/systemd/system/genieacs-cwmp.service << 'EOF'
 [Unit]
 Description=GenieACS CWMP
 After=network.target mongod.service redis-server.service
@@ -65,7 +65,7 @@ User=nobody
 WantedBy=multi-user.target
 EOF
 
-cat >/etc/systemd/system/genieacs-nbi.service <<'EOF'
+cat > /etc/systemd/system/genieacs-nbi.service << 'EOF'
 [Unit]
 Description=GenieACS NBI
 After=network.target mongod.service redis-server.service
@@ -79,7 +79,7 @@ User=nobody
 WantedBy=multi-user.target
 EOF
 
-cat >/etc/systemd/system/genieacs-fs.service <<'EOF'
+cat > /etc/systemd/system/genieacs-fs.service << 'EOF'
 [Unit]
 Description=GenieACS FileServer
 After=network.target mongod.service redis-server.service
@@ -93,13 +93,13 @@ User=nobody
 WantedBy=multi-user.target
 EOF
 
-cat >/etc/systemd/system/genieacs-ui.service <<'EOF'
+cat > /etc/systemd/system/genieacs-ui.service << 'EOF'
 [Unit]
 Description=GenieACS UI
 After=network.target mongod.service redis-server.service
 
 [Service]
-Environment=GENIEACS_UI_JWT_SECRET=change-me
+Environment=GENIEACS_UI_JWT_SECRET=one-solution-secret-key
 ExecStart=/usr/bin/genieacs-ui
 Restart=always
 User=nobody
@@ -108,24 +108,27 @@ User=nobody
 WantedBy=multi-user.target
 EOF
 
-# Enable & start services
+# Enable and start GenieACS services
 systemctl daemon-reload
-systemctl enable genieacs-{cwmp,nbi,fs,ui} --now
+systemctl enable genieacs-cwmp genieacs-nbi genieacs-fs genieacs-ui
+systemctl start genieacs-cwmp genieacs-nbi genieacs-fs genieacs-ui
 
-# Build backend API
-cd /opt
-if [[ ! -d acs-server ]]; then
-  git clone https://github.com/zawnaing-2024/acs-server.git
-fi
-cd acs-server/backend
+# Install backend dependencies
+echo "Installing backend dependencies..."
+cd backend
 npm install --production
-cat >/etc/systemd/system/acs-api.service <<'EOF'
+
+# Create backend service
+cat > /etc/systemd/system/acs-api.service << 'EOF'
 [Unit]
-Description=ACS Custom REST API
+Description=ONE SOLUTION ACS API
 After=network.target genieacs-nbi.service
 
 [Service]
-EnvironmentFile=/opt/acs-server/.env
+Environment=NODE_ENV=production
+Environment=PORT=4000
+Environment=JWT_SECRET=one-solution-jwt-secret
+Environment=GENIEACS_NBI_URL=http://localhost:7557
 WorkingDirectory=/opt/acs-server/backend
 ExecStart=/usr/bin/node index.js
 Restart=always
@@ -135,70 +138,77 @@ User=nobody
 WantedBy=multi-user.target
 EOF
 
-systemctl enable acs-api --now
+systemctl enable acs-api
+systemctl start acs-api
 
-# Ensure env file exists
-cd /opt/acs-server
-if [[ ! -f .env ]]; then
-  cp env.template .env
-fi
-
-# Build frontend & serve with nginx
-apt install -y nginx
-cd /opt/acs-server/frontend
-npm install --production
+# Build frontend
+echo "Building frontend..."
+cd ../frontend
+npm install
 npm run build
 
-# Copy build to web root
-rm -rf /var/www/acs || true
-mkdir -p /var/www/acs
-cp -r dist/* /var/www/acs/
-
-# Configure nginx site
-cat >/etc/nginx/sites-available/acs.conf <<'NCONF'
+# Configure Nginx
+echo "Configuring Nginx..."
+cat > /etc/nginx/sites-available/acs-portal << 'EOF'
 server {
     listen 80 default_server;
-    listen [::]:80 default_server;
     server_name _;
 
-    root /var/www/acs;
-    index index.html;
+    # Frontend
+    location / {
+        root /opt/acs-server/frontend/dist;
+        try_files $uri $uri/ /index.html;
+    }
 
+    # API proxy
     location /api/ {
         proxy_pass http://localhost:4000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
     }
 
-    location / {
-        try_files $uri /index.html;
+    # Auth endpoints
+    location /auth/ {
+        proxy_pass http://localhost:4000/auth/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
-NCONF
+EOF
 
-# 1) remove the default link
-sudo rm -f /etc/nginx/sites-enabled/default
+# Enable site and restart Nginx
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/acs-portal /etc/nginx/sites-enabled/
+systemctl restart nginx
 
-# 2) create (or recreate) our ACS site file
-sudo ln -sf /etc/nginx/sites-available/acs.conf /etc/nginx/sites-enabled/acs.conf
+# Copy frontend build
+mkdir -p /opt/acs-server/frontend/dist
+cp -r dist/* /opt/acs-server/frontend/dist/
 
-# 3) be sure the dashboard files exist
-sudo mkdir -p /var/www/acs
-if [ ! -f /var/www/acs/index.html ]; then
-    cd /opt/acs-server/frontend
-    npm install --production
-    npm run build
-    sudo cp -r dist/* /var/www/acs/
-fi
-
-# 4) restart nginx
-sudo nginx -t           # should say "syntax is ok"
-sudo systemctl restart nginx
-
-# Final output
-IP=$(hostname -I | awk '{print $1}')
-echo -e "\nAll done!"
-echo "CWMP:   http://$IP:7547"
-echo "GenieACS UI: http://$IP:3000"
-echo "Dashboard:    http://$IP/"
-echo "Custom API:  http://$IP:4000" 
+echo ""
+echo "=========================================="
+echo "  Installation Complete!"
+echo "=========================================="
+echo ""
+echo "Your ACS Portal is now running at:"
+echo "  Dashboard: http://$(hostname -I | awk '{print $1}')/"
+echo "  GenieACS UI: http://$(hostname -I | awk '{print $1}'):3000"
+echo "  TR-069 Endpoint: http://$(hostname -I | awk '{print $1}'):7547"
+echo ""
+echo "Default Login:"
+echo "  Username: admin"
+echo "  Password: One@2025"
+echo ""
+echo "To add devices, configure them with:"
+echo "  ACS URL: http://$(hostname -I | awk '{print $1}'):7547"
+echo ""
+echo "==========================================" 

@@ -1,77 +1,78 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  mongo:
-    image: mongo:4.4
+  mongodb:
+    image: mongo:6.0
+    container_name: acs-mongodb
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: one-solution-2025
     volumes:
-      - mongo_data:/data/db
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
 
   redis:
-    image: redis:6
+    image: redis:7-alpine
+    container_name: acs-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
 
   genieacs-cwmp:
-    image: genieacs/genieacs:latest
-    command: genieacs-cwmp
-    environment:
-      - GENIEACS_CWMP_INTERFACE=0.0.0.0
-    depends_on:
-      - mongo
-      - redis
+    image: genieacs/genieacs-cwmp:latest
+    container_name: acs-cwmp
     restart: unless-stopped
+    environment:
+      GENIEACS_CWMP_INTERFACE: 0.0.0.0
+      GENIEACS_CWMP_PORT: 7547
+      GENIEACS_CWMP_SSL: "false"
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:one-solution-2025@mongodb:27017/genieacs?authSource=admin
+      GENIEACS_REDIS_CONNECTION_URL: redis://redis:6379
     ports:
-      - "7547:7547"   # TR-069 endpoint
+      - "7547:7547"
+    depends_on:
+      - mongodb
+      - redis
 
   genieacs-nbi:
-    image: genieacs/genieacs:latest
-    command: genieacs-nbi
-    depends_on:
-      - mongo
-      - redis
+    image: genieacs/genieacs-nbi:latest
+    container_name: acs-nbi
     restart: unless-stopped
-    ports:
-      - "7557:7557"   # Northbound API
-
-  genieacs-fs:
-    image: genieacs/genieacs:latest
-    command: genieacs-fs
-    depends_on:
-      - mongo
-      - redis
-    restart: unless-stopped
-
-  genieacs-ui:
-    image: genieacs/genieacs:latest
-    command: genieacs-ui
     environment:
-      - GENIEACS_UI_JWT_SECRET=super-secret-change-me
-    depends_on:
-      - mongo
-      - redis
-    restart: unless-stopped
+      GENIEACS_NBI_INTERFACE: 0.0.0.0
+      GENIEACS_NBI_PORT: 7557
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:one-solution-2025@mongodb:27017/genieacs?authSource=admin
+      GENIEACS_REDIS_CONNECTION_URL: redis://redis:6379
     ports:
-      - "3000:3000"   # Original GenieACS UI (optional)
+      - "7557:7557"
+    depends_on:
+      - mongodb
+      - redis
 
-  api:
+  backend:
     build: ./backend
+    container_name: acs-backend
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
-      - GENIEACS_NBI_URL=http://genieacs-nbi:7557
+      NODE_ENV: production
+      PORT: 4000
+      JWT_SECRET: one-solution-jwt-secret
+      GENIEACS_NBI_URL: http://genieacs-nbi:7557
+    ports:
+      - "4000:4000"
     depends_on:
       - genieacs-nbi
-    ports:
-      - "4000:4000"   # Custom REST API
 
   frontend:
     build: ./frontend
+    container_name: acs-frontend
     restart: unless-stopped
-    depends_on:
-      - api
     ports:
-      - "80:80"       # Public web portal
+      - "80:80"
+    depends_on:
+      - backend
 
 volumes:
-  mongo_data: 
+  mongodb_data:
