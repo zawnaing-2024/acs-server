@@ -15,6 +15,29 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Function to fix dpkg locks
+fix_dpkg_locks() {
+    echo "Fixing dpkg locks..."
+    rm -f /var/lib/dpkg/lock*
+    rm -f /var/cache/apt/archives/lock
+    rm -f /var/lib/apt/lists/lock
+    dpkg --configure -a
+    apt-get update
+}
+
+# Function to stop and remove conflicting nginx
+cleanup_nginx() {
+    echo "Cleaning up existing nginx installation..."
+    systemctl stop nginx 2>/dev/null || true
+    systemctl disable nginx 2>/dev/null || true
+    apt-get remove --purge -y nginx nginx-common nginx-core nginx-full nginx-light nginx-extras 2>/dev/null || true
+    apt-get autoremove -y
+    apt-get autoclean
+}
+
+# Fix any existing dpkg issues
+fix_dpkg_locks
+
 # Update system
 echo "Updating system packages..."
 apt update
@@ -40,7 +63,8 @@ apt install -y redis-server
 systemctl enable redis-server
 systemctl start redis-server
 
-# Install Nginx
+# Clean up existing nginx and install fresh
+cleanup_nginx
 echo "Installing Nginx..."
 apt install -y nginx
 
@@ -113,9 +137,13 @@ systemctl daemon-reload
 systemctl enable genieacs-cwmp genieacs-nbi genieacs-fs genieacs-ui
 systemctl start genieacs-cwmp genieacs-nbi genieacs-fs genieacs-ui
 
+# Create application directory
+mkdir -p /opt/acs-server
+cp -r . /opt/acs-server/
+
 # Install backend dependencies
 echo "Installing backend dependencies..."
-cd backend
+cd /opt/acs-server/backend
 npm install --production
 
 # Create backend service
@@ -143,7 +171,7 @@ systemctl start acs-api
 
 # Build frontend
 echo "Building frontend..."
-cd ../frontend
+cd /opt/acs-server/frontend
 npm install
 npm run build
 
@@ -193,6 +221,9 @@ systemctl restart nginx
 # Copy frontend build
 mkdir -p /opt/acs-server/frontend/dist
 cp -r dist/* /opt/acs-server/frontend/dist/
+
+# Set proper permissions
+chown -R nobody:nogroup /opt/acs-server
 
 echo ""
 echo "=========================================="
