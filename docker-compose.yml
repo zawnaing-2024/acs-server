@@ -57,26 +57,24 @@ services:
 
   # GenieACS CWMP Server
   genieacs-cwmp:
-    image: btsimonh/genieacs:latest
+    image: akpagano/genieacs
     container_name: acs-genieacs-cwmp
     restart: unless-stopped
     environment:
       - GENIEACS_CWMP_INTERFACE=0.0.0.0
       - GENIEACS_CWMP_PORT=7547
       - GENIEACS_MONGODB_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
-      - GENIEACS_DEBUG_FILE=/var/log/genieacs/genieacs-debug.yaml
     ports:
       - "7547:7547"
     depends_on:
       - mongodb
     networks:
       - acs-network
-    volumes:
-      - genieacs_logs:/var/log/genieacs
+    command: ["/usr/bin/genieacs-cwmp"]
 
   # GenieACS NBI (Northbound Interface)
   genieacs-nbi:
-    image: btsimonh/genieacs:latest
+    image: akpagano/genieacs
     container_name: acs-genieacs-nbi
     restart: unless-stopped
     environment:
@@ -89,12 +87,11 @@ services:
       - mongodb
     networks:
       - acs-network
-    volumes:
-      - genieacs_logs:/var/log/genieacs
+    command: ["/usr/bin/genieacs-nbi"]
 
   # GenieACS File Server
   genieacs-fs:
-    image: btsimonh/genieacs:latest
+    image: akpagano/genieacs
     container_name: acs-genieacs-fs
     restart: unless-stopped
     environment:
@@ -107,12 +104,11 @@ services:
       - mongodb
     networks:
       - acs-network
-    volumes:
-      - genieacs_logs:/var/log/genieacs
+    command: ["/usr/bin/genieacs-fs"]
 
   # GenieACS UI
   genieacs-ui:
-    image: btsimonh/genieacs:latest
+    image: akpagano/genieacs
     container_name: acs-genieacs-ui
     restart: unless-stopped
     environment:
@@ -125,12 +121,10 @@ services:
       - mongodb
     networks:
       - acs-network
-    volumes:
-      - genieacs_logs:/var/log/genieacs
+    command: ["/usr/bin/genieacs-ui"]
 
 volumes:
   mongodb_data:
-  genieacs_logs:
 
 networks:
   acs-network:
