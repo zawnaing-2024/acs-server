@@ -1,0 +1,42 @@
+services:
+  # MongoDB for data storage
+  mongodb:
+    image: mongo:5.0
+    container_name: acs-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: acs-backend
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      JWT_SECRET: your-jwt-secret-change-in-production
+      GENIEACS_URL: http://localhost:7557
+      GENIEACS_USERNAME: admin
+      GENIEACS_PASSWORD: admin
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongodb
+
+  # Frontend
+  frontend:
+    build: ./frontend
+    container_name: acs-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongodb_data: 
