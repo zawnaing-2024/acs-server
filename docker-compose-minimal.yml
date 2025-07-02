@@ -11,6 +11,18 @@ services:
       - mongodb_data:/data/db
     ports:
       - "27017:27017"
+    networks:
+      - acs-network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: acs-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - acs-network
 
   # Backend API
   backend:
@@ -20,13 +32,17 @@ services:
     environment:
       PORT: 3001
       JWT_SECRET: your-jwt-secret-change-in-production
-      GENIEACS_URL: http://localhost:7557
+      GENIEACS_URL: http://tr069-server:7547
       GENIEACS_USERNAME: admin
       GENIEACS_PASSWORD: admin
+      MONGODB_URL: mongodb://admin:admin123@mongodb:27017/acs?authSource=admin
     ports:
       - "3001:3001"
     depends_on:
       - mongodb
+      - redis
+    networks:
+      - acs-network
 
   # Frontend
   frontend:
@@ -37,6 +53,28 @@ services:
       - "80:80"
     depends_on:
       - backend
+    networks:
+      - acs-network
+
+  # Simple TR-069 CWMP Server using Node.js
+  tr069-server:
+    build: ./tr069-server
+    container_name: acs-tr069-server
+    restart: unless-stopped
+    environment:
+      - CWMP_PORT=7547
+      - CWMP_INTERFACE=0.0.0.0
+      - MONGODB_URL=mongodb://admin:admin123@mongodb:27017/tr069?authSource=admin
+    ports:
+      - "7547:7547"
+    depends_on:
+      - mongodb
+    networks:
+      - acs-network
 
 volumes:
-  mongodb_data: 
+  mongodb_data:
+
+networks:
+  acs-network:
+    driver: bridge 

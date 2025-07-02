@@ -161,21 +161,53 @@ app.get('/api/devices', authenticateToken, async (req, res) => {
   try {
     const { search, type, status, page = 1, limit = 20 } = req.query;
     
-    // Mock device data
+    // Try to fetch from our TR-069 server
+    try {
+      const response = await axios.get('http://tr069-server:7547/devices');
+      if (response.data && response.data.devices) {
+        const devices = response.data.devices.map(device => ({
+          _id: device.id || device.serialNumber,
+          SerialNumber: device.serialNumber,
+          DeviceType: device.manufacturer || 'CPE',
+          Online: device.status === 'online',
+          lastInform: device.lastInform,
+          manufacturer: device.manufacturer,
+          model: device.model
+        }));
+        
+        return res.json({
+          devices: devices,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: devices.length,
+            pages: Math.ceil(devices.length / limit)
+          }
+        });
+      }
+    } catch (fetchError) {
+      console.log('TR-069 server not available, using mock data');
+    }
+    
+    // Fallback to mock device data
     const devices = [
       {
         _id: 'device1',
-        SerialNumber: 'SN001',
+        SerialNumber: 'TP001',
         DeviceType: 'CPE',
         Online: true,
-        lastInform: new Date().toISOString()
+        lastInform: new Date().toISOString(),
+        manufacturer: 'TP-LINK',
+        model: 'TL-WR841N'
       },
       {
         _id: 'device2',
-        SerialNumber: 'SN002',
+        SerialNumber: 'HW001',
         DeviceType: 'ONU',
         Online: false,
-        lastInform: new Date(Date.now() - 3600000).toISOString()
+        lastInform: new Date(Date.now() - 3600000).toISOString(),
+        manufacturer: 'HUAWEI',
+        model: 'HG8310M'
       }
     ];
     
