@@ -10,10 +10,11 @@ docker compose down
 # Remove the problematic images
 echo "🗑️ Removing old GenieACS images..."
 docker rmi drumsergio/genieacs:latest 2>/dev/null || true
+docker rmi genieacs/genieacs:1.2.8 2>/dev/null || true
 
-# Pull the official GenieACS image
-echo "📦 Pulling official GenieACS image..."
-docker pull genieacs/genieacs:1.2.8
+# Pull the working GenieACS image
+echo "📦 Pulling working GenieACS image..."
+docker pull btsimonh/genieacs:latest
 
 # Start all services with the fixed configuration
 echo "🚀 Starting all services with correct GenieACS image..."

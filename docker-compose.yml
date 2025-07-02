@@ -57,74 +57,80 @@ services:
 
   # GenieACS CWMP Server
   genieacs-cwmp:
-    image: genieacs/genieacs:1.2.8
+    image: btsimonh/genieacs:latest
     container_name: acs-genieacs-cwmp
     restart: unless-stopped
     environment:
-      GENIEACS_CWMP_INTERFACE: 0.0.0.0
-      GENIEACS_CWMP_PORT: 7547
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+      - GENIEACS_CWMP_INTERFACE=0.0.0.0
+      - GENIEACS_CWMP_PORT=7547
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+      - GENIEACS_DEBUG_FILE=/var/log/genieacs/genieacs-debug.yaml
     ports:
       - "7547:7547"
     depends_on:
       - mongodb
     networks:
       - acs-network
-    command: ["genieacs-cwmp"]
+    volumes:
+      - genieacs_logs:/var/log/genieacs
 
   # GenieACS NBI (Northbound Interface)
   genieacs-nbi:
-    image: genieacs/genieacs:1.2.8
+    image: btsimonh/genieacs:latest
     container_name: acs-genieacs-nbi
     restart: unless-stopped
     environment:
-      GENIEACS_NBI_INTERFACE: 0.0.0.0
-      GENIEACS_NBI_PORT: 7557
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+      - GENIEACS_NBI_INTERFACE=0.0.0.0
+      - GENIEACS_NBI_PORT=7557
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
     ports:
       - "7557:7557"
     depends_on:
       - mongodb
     networks:
       - acs-network
-    command: ["genieacs-nbi"]
+    volumes:
+      - genieacs_logs:/var/log/genieacs
 
   # GenieACS File Server
   genieacs-fs:
-    image: genieacs/genieacs:1.2.8
+    image: btsimonh/genieacs:latest
     container_name: acs-genieacs-fs
     restart: unless-stopped
     environment:
-      GENIEACS_FS_INTERFACE: 0.0.0.0
-      GENIEACS_FS_PORT: 7567
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+      - GENIEACS_FS_INTERFACE=0.0.0.0
+      - GENIEACS_FS_PORT=7567
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
     ports:
       - "7567:7567"
     depends_on:
       - mongodb
     networks:
       - acs-network
-    command: ["genieacs-fs"]
+    volumes:
+      - genieacs_logs:/var/log/genieacs
 
   # GenieACS UI
   genieacs-ui:
-    image: genieacs/genieacs:1.2.8
+    image: btsimonh/genieacs:latest
     container_name: acs-genieacs-ui
     restart: unless-stopped
     environment:
-      GENIEACS_UI_INTERFACE: 0.0.0.0
-      GENIEACS_UI_PORT: 3000
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+      - GENIEACS_UI_INTERFACE=0.0.0.0
+      - GENIEACS_UI_PORT=3000
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
     ports:
       - "3000:3000"
     depends_on:
       - mongodb
     networks:
       - acs-network
-    command: ["genieacs-ui"]
+    volumes:
+      - genieacs_logs:/var/log/genieacs
 
 volumes:
   mongodb_data:
+  genieacs_logs:
 
 networks:
   acs-network:
