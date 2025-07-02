@@ -109,12 +109,6 @@ const Login = () => {
               {loading ? 'Signing In...' : 'Sign In'}
             </Button>
           </Box>
-
-          <Box sx={{ mt: 2, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">
-              Default: admin / One@2025
-            </Typography>
-          </Box>
         </Paper>
       </Container>
     </Box>

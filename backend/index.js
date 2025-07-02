@@ -19,7 +19,7 @@ const users = [
   {
     id: 1,
     username: 'admin',
-    password: '$2a$10$rQZ8K9mN2pL1vX3yB6cD7eF8gH9iJ0kL1mN2oP3qR4sT5uV6wX7yZ8',
+    password: 'One@2025', // plain text for now
     role: 'admin'
   }
 ];
@@ -49,7 +49,7 @@ app.post('/auth/login', async (req, res) => {
   const { username, password } = req.body;
   const user = users.find(u => u.username === username);
   
-  if (!user || !(await bcrypt.compare(password, user.password))) {
+  if (!user || password !== user.password) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
   
