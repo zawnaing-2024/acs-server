@@ -1,70 +1,51 @@
 version: '3.8'
 
 services:
+  # MongoDB for data storage
   mongodb:
-    image: mongo:6.0
+    image: mongo:5.0
     container_name: acs-mongodb
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: one-solution-2025
+      MONGO_INITDB_ROOT_PASSWORD: admin123
     volumes:
       - mongodb_data:/data/db
     ports:
       - "27017:27017"
+    networks:
+      - acs-network
 
+  # Redis for caching
   redis:
     image: redis:7-alpine
     container_name: acs-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
+    networks:
+      - acs-network
 
-  genieacs-cwmp:
-    image: genieacs/genieacs-cwmp:latest
-    container_name: acs-cwmp
-    restart: unless-stopped
-    environment:
-      GENIEACS_CWMP_INTERFACE: 0.0.0.0
-      GENIEACS_CWMP_PORT: 7547
-      GENIEACS_CWMP_SSL: "false"
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:one-solution-2025@mongodb:27017/genieacs?authSource=admin
-      GENIEACS_REDIS_CONNECTION_URL: redis://redis:6379
-    ports:
-      - "7547:7547"
-    depends_on:
-      - mongodb
-      - redis
-
-  genieacs-nbi:
-    image: genieacs/genieacs-nbi:latest
-    container_name: acs-nbi
-    restart: unless-stopped
-    environment:
-      GENIEACS_NBI_INTERFACE: 0.0.0.0
-      GENIEACS_NBI_PORT: 7557
-      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:one-solution-2025@mongodb:27017/genieacs?authSource=admin
-      GENIEACS_REDIS_CONNECTION_URL: redis://redis:6379
-    ports:
-      - "7557:7557"
-    depends_on:
-      - mongodb
-      - redis
-
+  # Backend API
   backend:
     build: ./backend
     container_name: acs-backend
     restart: unless-stopped
     environment:
-      NODE_ENV: production
-      PORT: 4000
-      JWT_SECRET: one-solution-jwt-secret
-      GENIEACS_NBI_URL: http://genieacs-nbi:7557
+      PORT: 3001
+      JWT_SECRET: your-jwt-secret-change-in-production
+      GENIEACS_URL: http://localhost:7557
+      GENIEACS_USERNAME: admin
+      GENIEACS_PASSWORD: admin
     ports:
-      - "4000:4000"
+      - "3001:3001"
     depends_on:
-      - genieacs-nbi
+      - mongodb
+      - redis
+    networks:
+      - acs-network
 
+  # Frontend
   frontend:
     build: ./frontend
     container_name: acs-frontend
@@ -73,6 +54,80 @@ services:
       - "80:80"
     depends_on:
       - backend
+    networks:
+      - acs-network
+
+  # GenieACS CWMP Server
+  genieacs-cwmp:
+    image: drumsergio/genieacs:latest
+    container_name: acs-genieacs-cwmp
+    restart: unless-stopped
+    environment:
+      GENIEACS_CWMP_INTERFACE: 0.0.0.0
+      GENIEACS_CWMP_PORT: 7547
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+    ports:
+      - "7547:7547"
+    depends_on:
+      - mongodb
+    networks:
+      - acs-network
+    command: ["node", "/opt/genieacs/bin/genieacs-cwmp"]
+
+  # GenieACS NBI (Northbound Interface)
+  genieacs-nbi:
+    image: drumsergio/genieacs:latest
+    container_name: acs-genieacs-nbi
+    restart: unless-stopped
+    environment:
+      GENIEACS_NBI_INTERFACE: 0.0.0.0
+      GENIEACS_NBI_PORT: 7557
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+    ports:
+      - "7557:7557"
+    depends_on:
+      - mongodb
+    networks:
+      - acs-network
+    command: ["node", "/opt/genieacs/bin/genieacs-nbi"]
+
+  # GenieACS File Server
+  genieacs-fs:
+    image: drumsergio/genieacs:latest
+    container_name: acs-genieacs-fs
+    restart: unless-stopped
+    environment:
+      GENIEACS_FS_INTERFACE: 0.0.0.0
+      GENIEACS_FS_PORT: 7567
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+    ports:
+      - "7567:7567"
+    depends_on:
+      - mongodb
+    networks:
+      - acs-network
+    command: ["node", "/opt/genieacs/bin/genieacs-fs"]
+
+  # GenieACS UI
+  genieacs-ui:
+    image: drumsergio/genieacs:latest
+    container_name: acs-genieacs-ui
+    restart: unless-stopped
+    environment:
+      GENIEACS_UI_INTERFACE: 0.0.0.0
+      GENIEACS_UI_PORT: 3000
+      GENIEACS_MONGODB_CONNECTION_URL: mongodb://admin:admin123@mongodb:27017/genieacs?authSource=admin
+    ports:
+      - "3000:3000"
+    depends_on:
+      - mongodb
+    networks:
+      - acs-network
+    command: ["node", "/opt/genieacs/bin/genieacs-ui"]
 
 volumes:
   mongodb_data:
+
+networks:
+  acs-network:
+    driver: bridge

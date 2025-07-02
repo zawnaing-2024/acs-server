@@ -4,10 +4,10 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm ci --only=production
+RUN npm install --only=production
 
 COPY . .
 
-EXPOSE 4000
+EXPOSE 3001
 
 CMD ["node", "index.js"]
