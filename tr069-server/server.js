@@ -35,21 +35,39 @@ MongoClient.connect(MONGODB_URL)
 // Basic authentication middleware
 const basicAuth = (req, res, next) => {
   const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Basic ')) {
+  
+  // Allow requests without auth for initial handshake
+  if (!auth) {
+    console.log('No auth provided, allowing for initial handshake');
+    req.device = { username: 'admin', password: 'admin' };
+    return next();
+  }
+  
+  if (!auth.startsWith('Basic ')) {
+    console.log('Invalid auth format, requiring basic auth');
     res.setHeader('WWW-Authenticate', 'Basic realm="TR-069 CWMP"');
     return res.status(401).send('Authentication required');
   }
   
-  const credentials = Buffer.from(auth.slice(6), 'base64').toString();
-  const [username, password] = credentials.split(':');
-  
-  // Simple authentication - in production, use proper auth
-  if (username === 'admin' && password === 'admin') {
-    req.device = { username, password };
-    next();
-  } else {
+  try {
+    const credentials = Buffer.from(auth.slice(6), 'base64').toString();
+    const [username, password] = credentials.split(':');
+    
+    console.log(`Auth attempt: username=${username}, password=${password ? '[PROVIDED]' : '[EMPTY]'}`);
+    
+    // Accept admin/admin or allow any credentials for now
+    if ((username === 'admin' && password === 'admin') || username) {
+      req.device = { username, password };
+      next();
+    } else {
+      console.log('Auth failed');
+      res.setHeader('WWW-Authenticate', 'Basic realm="TR-069 CWMP"');
+      return res.status(401).send('Invalid credentials');
+    }
+  } catch (error) {
+    console.error('Auth parsing error:', error);
     res.setHeader('WWW-Authenticate', 'Basic realm="TR-069 CWMP"');
-    return res.status(401).send('Invalid credentials');
+    return res.status(401).send('Authentication error');
   }
 };
 
@@ -118,14 +136,27 @@ app.post('/', basicAuth, async (req, res) => {
   try {
     console.log('📱 Device connection received');
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Method:', req.method);
+    console.log('URL:', req.url);
     
     const soapAction = req.headers.soapaction || req.headers['soapaction'] || '';
     const body = req.body;
     
     console.log('SOAP Action:', soapAction);
-    console.log('Body length:', body.length);
+    console.log('Body type:', typeof body);
+    console.log('Body length:', body ? body.length : 0);
+    console.log('Body content (first 200 chars):', body ? body.substring(0, 200) : 'No body');
+    
+    // Set proper headers for SOAP response
+    res.set({
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': '',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
+    });
     
     if (!body || body.trim() === '') {
+      console.log('Empty body - sending InformResponse');
       // Empty request - send Inform response
       const response = `<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
@@ -140,61 +171,109 @@ app.post('/', basicAuth, async (req, res) => {
   </soap:Body>
 </soap:Envelope>`;
       
-      res.set({
-        'Content-Type': 'text/xml; charset=utf-8',
-        'SOAPAction': ''
-      });
       return res.send(response);
     }
 
     // Parse SOAP message
     xmlParser.parseString(body, async (err, result) => {
       if (err) {
-        console.error('XML parsing error:', err);
-        return res.status(400).send('Invalid XML');
+        console.error('XML parsing error:', err.message);
+        console.log('Raw body causing error:', body);
+        // Send a basic SOAP response even if parsing fails
+        const errorResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
+               xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+  <soap:Header>
+    <cwmp:ID soap:mustUnderstand="1">1</cwmp:ID>
+  </soap:Header>
+  <soap:Body>
+    <cwmp:InformResponse>
+      <MaxEnvelopes>1</MaxEnvelopes>
+    </cwmp:InformResponse>
+  </soap:Body>
+</soap:Envelope>`;
+        return res.send(errorResponse);
       }
 
-      console.log('Parsed XML:', JSON.stringify(result, null, 2));
+      console.log('Successfully parsed XML');
+      console.log('Parsed structure keys:', Object.keys(result));
 
       // Extract device information from Inform message
       try {
-        const envelope = result['soap:Envelope'] || result.Envelope;
-        const soapBody = envelope['soap:Body'] || envelope.Body;
+        const envelope = result['soap:Envelope'] || result.Envelope || result['soapenv:Envelope'];
+        if (!envelope) {
+          console.log('No SOAP envelope found, sending generic response');
+          const genericResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+  </soap:Body>
+</soap:Envelope>`;
+          return res.send(genericResponse);
+        }
+
+        const soapBody = envelope['soap:Body'] || envelope.Body || envelope['soapenv:Body'];
+        if (!soapBody || !soapBody[0]) {
+          console.log('No SOAP body found, sending generic response');
+          const genericResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+  </soap:Body>
+</soap:Envelope>`;
+          return res.send(genericResponse);
+        }
         
-        if (soapBody && soapBody[0] && soapBody[0]['cwmp:Inform']) {
-          const inform = soapBody[0]['cwmp:Inform'][0];
-          const deviceId = inform.DeviceId[0];
-          const parameterList = inform.ParameterList[0].ParameterValueStruct || [];
+        console.log('SOAP Body keys:', Object.keys(soapBody[0]));
+        
+        // Look for Inform message
+        const inform = soapBody[0]['cwmp:Inform'] || soapBody[0].Inform;
+        if (inform && inform[0]) {
+          console.log('Processing Inform message');
           
-          const deviceData = {
-            serialNumber: deviceId.SerialNumber[0],
-            manufacturer: deviceId.Manufacturer[0],
-            oui: deviceId.OUI[0],
-            productClass: deviceId.ProductClass[0],
-            lastInform: new Date(),
-            status: 'online',
-            parameters: {}
-          };
+          try {
+            const deviceId = inform[0].DeviceId[0];
+            const parameterList = inform[0].ParameterList && inform[0].ParameterList[0] 
+              ? inform[0].ParameterList[0].ParameterValueStruct || [] 
+              : [];
+            
+            const deviceData = {
+              serialNumber: deviceId.SerialNumber ? deviceId.SerialNumber[0] : 'Unknown',
+              manufacturer: deviceId.Manufacturer ? deviceId.Manufacturer[0] : 'Unknown',
+              oui: deviceId.OUI ? deviceId.OUI[0] : 'Unknown',
+              productClass: deviceId.ProductClass ? deviceId.ProductClass[0] : 'Unknown',
+              lastInform: new Date(),
+              status: 'online',
+              parameters: {}
+            };
 
-          // Extract parameters
-          parameterList.forEach(param => {
-            if (param.Name && param.Value) {
-              deviceData.parameters[param.Name[0]] = param.Value[0];
+            // Extract parameters safely
+            if (Array.isArray(parameterList)) {
+              parameterList.forEach(param => {
+                try {
+                  if (param.Name && param.Value && param.Name[0] && param.Value[0]) {
+                    deviceData.parameters[param.Name[0]] = param.Value[0];
+                  }
+                } catch (paramError) {
+                  console.log('Error processing parameter:', paramError.message);
+                }
+              });
             }
-          });
 
-          // Save to database
-          if (db) {
-            await db.collection('devices').updateOne(
-              { serialNumber: deviceData.serialNumber },
-              { $set: deviceData },
-              { upsert: true }
-            );
-            console.log('✅ Device saved to database:', deviceData.serialNumber);
-          }
+            // Save to database
+            if (db) {
+              try {
+                await db.collection('devices').updateOne(
+                  { serialNumber: deviceData.serialNumber },
+                  { $set: deviceData },
+                  { upsert: true }
+                );
+                console.log('✅ Device saved to database:', deviceData.serialNumber);
+              } catch (dbError) {
+                console.error('Database save error:', dbError.message);
+              }
+            }
 
-          // Send InformResponse
-          const response = `<?xml version="1.0" encoding="UTF-8"?>
+            // Send InformResponse
+            const response = `<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
                xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
   <soap:Header>
@@ -207,33 +286,52 @@ app.post('/', basicAuth, async (req, res) => {
   </soap:Body>
 </soap:Envelope>`;
 
-          res.set({
-            'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': ''
-          });
-          return res.send(response);
+            console.log('Sending InformResponse');
+            return res.send(response);
+          } catch (informError) {
+            console.error('Error processing Inform message:', informError.message);
+          }
         }
 
-        // Handle other SOAP methods if needed
-        res.set({
-          'Content-Type': 'text/xml; charset=utf-8',
-          'SOAPAction': ''
-        });
-        res.send(`<?xml version="1.0" encoding="UTF-8"?>
+        // Handle other SOAP methods or send generic response
+        console.log('Sending generic SOAP response');
+        const genericResponse = `<?xml version="1.0" encoding="UTF-8"?>
 <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
   </soap:Body>
-</soap:Envelope>`);
+</soap:Envelope>`;
+        res.send(genericResponse);
 
       } catch (parseError) {
-        console.error('Error processing SOAP message:', parseError);
-        res.status(500).send('Error processing request');
+        console.error('Error processing SOAP message:', parseError.message);
+        console.error('Stack:', parseError.stack);
+        
+        // Always send a valid SOAP response to avoid 500 errors
+        const errorResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+  </soap:Body>
+</soap:Envelope>`;
+        res.send(errorResponse);
       }
     });
 
   } catch (error) {
-    console.error('Error handling CWMP request:', error);
-    res.status(500).send('Internal server error');
+    console.error('Error handling CWMP request:', error.message);
+    console.error('Stack:', error.stack);
+    
+    // Always send a valid SOAP response to avoid 500 errors
+    res.set({
+      'Content-Type': 'text/xml; charset=utf-8',
+      'SOAPAction': ''
+    });
+    
+    const errorResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+  </soap:Body>
+</soap:Envelope>`;
+    res.send(errorResponse);
   }
 });
 
