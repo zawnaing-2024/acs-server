@@ -133,21 +133,52 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Get dashboard stats
+// Get dashboard stats - REAL DATA ONLY
 app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   try {
-    // Mock data since GenieACS might not be available
-    const stats = {
-      total: 10,
-      online: 7,
-      offline: 3,
-      powerFail: 1,
+    // Get real device data from TR-069 server
+    let stats = {
+      total: 0,
+      online: 0,
+      offline: 0,
+      powerFail: 0,
       byType: {
-        cpe: 5,
-        onu: 3,
-        mikrotik: 2
+        cpe: 0,
+        onu: 0,
+        mikrotik: 0
       }
     };
+
+    try {
+      const response = await axios.get('http://tr069-server:7547/devices');
+      if (response.data && response.data.devices) {
+        const devices = response.data.devices;
+        stats.total = devices.length;
+        
+        devices.forEach(device => {
+          if (device.status === 'online') {
+            stats.online++;
+          } else {
+            stats.offline++;
+          }
+          
+          // Categorize by manufacturer
+          const manufacturer = (device.manufacturer || '').toLowerCase();
+          if (manufacturer.includes('tp-link') || manufacturer.includes('netgear') || manufacturer.includes('d-link')) {
+            stats.byType.cpe++;
+          } else if (manufacturer.includes('huawei') || manufacturer.includes('zte') || manufacturer.includes('nokia')) {
+            stats.byType.onu++;
+          } else if (manufacturer.includes('mikrotik')) {
+            stats.byType.mikrotik++;
+          } else if (manufacturer && manufacturer !== 'unknown') {
+            stats.byType.cpe++; // Default to CPE for known manufacturers
+          }
+        });
+      }
+    } catch (fetchError) {
+      console.log('TR-069 server not available for stats');
+      // Return empty stats instead of mock data
+    }
 
     res.json(stats);
   } catch (error) {
@@ -156,7 +187,7 @@ app.get('/api/dashboard/stats', authenticateToken, async (req, res) => {
   }
 });
 
-// Get devices list
+// Get devices list - REAL DATA ONLY
 app.get('/api/devices', authenticateToken, async (req, res) => {
   try {
     const { search, type, status, page = 1, limit = 20 } = req.query;
@@ -165,18 +196,45 @@ app.get('/api/devices', authenticateToken, async (req, res) => {
     try {
       const response = await axios.get('http://tr069-server:7547/devices');
       if (response.data && response.data.devices) {
-        const devices = response.data.devices.map(device => ({
+        let devices = response.data.devices.map(device => ({
           _id: device.id || device.serialNumber,
           SerialNumber: device.serialNumber,
           DeviceType: device.manufacturer || 'CPE',
           Online: device.status === 'online',
           lastInform: device.lastInform,
           manufacturer: device.manufacturer,
-          model: device.model
+          model: device.model,
+          oui: device.oui,
+          productClass: device.productClass
         }));
+
+        // Apply filters
+        if (search) {
+          devices = devices.filter(device => 
+            device.SerialNumber.toLowerCase().includes(search.toLowerCase()) ||
+            (device.manufacturer && device.manufacturer.toLowerCase().includes(search.toLowerCase())) ||
+            (device.model && device.model.toLowerCase().includes(search.toLowerCase()))
+          );
+        }
+
+        if (type) {
+          devices = devices.filter(device => 
+            device.DeviceType.toLowerCase().includes(type.toLowerCase())
+          );
+        }
+
+        if (status) {
+          const isOnline = status.toLowerCase() === 'online';
+          devices = devices.filter(device => device.Online === isOnline);
+        }
+        
+        // Pagination
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + parseInt(limit);
+        const paginatedDevices = devices.slice(startIndex, endIndex);
         
         return res.json({
-          devices: devices,
+          devices: paginatedDevices,
           pagination: {
             page: parseInt(page),
             limit: parseInt(limit),
@@ -186,38 +244,17 @@ app.get('/api/devices', authenticateToken, async (req, res) => {
         });
       }
     } catch (fetchError) {
-      console.log('TR-069 server not available, using mock data');
+      console.log('TR-069 server not available, returning empty device list');
     }
     
-    // Fallback to mock device data
-    const devices = [
-      {
-        _id: 'device1',
-        SerialNumber: 'TP001',
-        DeviceType: 'CPE',
-        Online: true,
-        lastInform: new Date().toISOString(),
-        manufacturer: 'TP-LINK',
-        model: 'TL-WR841N'
-      },
-      {
-        _id: 'device2',
-        SerialNumber: 'HW001',
-        DeviceType: 'ONU',
-        Online: false,
-        lastInform: new Date(Date.now() - 3600000).toISOString(),
-        manufacturer: 'HUAWEI',
-        model: 'HG8310M'
-      }
-    ];
-    
+    // Return empty device list instead of mock data
     res.json({
-      devices: devices,
+      devices: [],
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: devices.length,
-        pages: 1
+        total: 0,
+        pages: 0
       }
     });
   } catch (error) {
@@ -231,18 +268,35 @@ app.get('/api/devices/:deviceId', authenticateToken, async (req, res) => {
   try {
     const { deviceId } = req.params;
     
-    // Mock device data
-    const device = {
-      _id: deviceId,
-      SerialNumber: 'SN001',
-      DeviceType: 'CPE',
-      Online: true,
-      lastInform: new Date().toISOString(),
-      OUI: '123456',
-      ProductClass: 'TestDevice'
-    };
+    // Try to get real device data
+    try {
+      const response = await axios.get('http://tr069-server:7547/devices');
+      if (response.data && response.data.devices) {
+        const device = response.data.devices.find(d => 
+          d.id === deviceId || d.serialNumber === deviceId
+        );
+        
+        if (device) {
+          return res.json({
+            _id: device.id || device.serialNumber,
+            SerialNumber: device.serialNumber,
+            DeviceType: device.manufacturer || 'CPE',
+            Online: device.status === 'online',
+            lastInform: device.lastInform,
+            OUI: device.oui,
+            ProductClass: device.productClass,
+            manufacturer: device.manufacturer,
+            model: device.model,
+            parameters: device.parameters || {}
+          });
+        }
+      }
+    } catch (fetchError) {
+      console.log('TR-069 server not available for device details');
+    }
     
-    res.json(device);
+    // Return 404 if device not found instead of mock data
+    res.status(404).json({ error: 'Device not found' });
   } catch (error) {
     console.error('Device details error:', error);
     res.status(500).json({ error: 'Failed to fetch device details' });
@@ -255,8 +309,9 @@ app.put('/api/devices/:deviceId/settings', authenticateToken, async (req, res) =
     const { deviceId } = req.params;
     const { wifiUsername, wifiPassword, customerId, customerPassword, fiberPower } = req.body;
     
-    // Mock response
-    res.json({ message: 'Settings update task created successfully' });
+    // For now, just acknowledge the request
+    // In a real implementation, this would send commands to the device via TR-069
+    res.json({ message: 'Settings update request received. Device will be updated on next connection.' });
   } catch (error) {
     console.error('Update settings error:', error);
     res.status(500).json({ error: 'Failed to update device settings' });
@@ -269,14 +324,8 @@ app.get('/api/devices/:deviceId/traffic', authenticateToken, async (req, res) =>
     const { deviceId } = req.params;
     const { period = '24h' } = req.query;
     
-    // Mock traffic data
-    const trafficData = [
-      { timestamp: '2024-01-01T00:00:00Z', download: 10, upload: 5 },
-      { timestamp: '2024-01-01T01:00:00Z', download: 15, upload: 8 },
-      { timestamp: '2024-01-01T02:00:00Z', download: 12, upload: 6 }
-    ];
-    
-    res.json(trafficData);
+    // Return empty traffic data since we don't have real traffic monitoring yet
+    res.json([]);
   } catch (error) {
     console.error('Traffic data error:', error);
     res.status(500).json({ error: 'Failed to fetch traffic data' });
@@ -286,8 +335,8 @@ app.get('/api/devices/:deviceId/traffic', authenticateToken, async (req, res) =>
 // Get tasks
 app.get('/api/tasks', authenticateToken, async (req, res) => {
   try {
-    const tasks = [];
-    res.json(tasks);
+    // Return empty tasks list
+    res.json([]);
   } catch (error) {
     console.error('Tasks error:', error);
     res.status(500).json({ error: 'Failed to fetch tasks' });

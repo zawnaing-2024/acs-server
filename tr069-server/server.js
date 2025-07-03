@@ -159,8 +159,7 @@ app.post('/', basicAuth, async (req, res) => {
       console.log('Empty body - sending InformResponse');
       // Empty request - send Inform response
       const response = `<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
-               xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
   <soap:Header>
     <cwmp:ID soap:mustUnderstand="1">1</cwmp:ID>
   </soap:Header>
@@ -181,8 +180,7 @@ app.post('/', basicAuth, async (req, res) => {
         console.log('Raw body causing error:', body);
         // Send a basic SOAP response even if parsing fails
         const errorResponse = `<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
-               xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
   <soap:Header>
     <cwmp:ID soap:mustUnderstand="1">1</cwmp:ID>
   </soap:Header>
@@ -274,8 +272,7 @@ app.post('/', basicAuth, async (req, res) => {
 
             // Send InformResponse
             const response = `<?xml version="1.0" encoding="UTF-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" 
-               xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cwmp="urn:dslforum-org:cwmp-1-0">
   <soap:Header>
     <cwmp:ID soap:mustUnderstand="1">${uuidv4()}</cwmp:ID>
   </soap:Header>
